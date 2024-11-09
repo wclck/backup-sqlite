@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # Bot token
+# گرفتن توکن ربات از کاربر و ذخیره آن در متغیر tk
 while [[ -z "$tk" ]]; do
     echo "Bot token: "
     read -r tk
@@ -11,6 +12,7 @@ while [[ -z "$tk" ]]; do
 done
 
 # Chat id
+# گرفتن Chat ID از کاربر و ذخیره آن در متغیر chatid
 while [[ -z "$chatid" ]]; do
     echo "Chat id: "
     read -r chatid
@@ -24,10 +26,12 @@ while [[ -z "$chatid" ]]; do
 done
 
 # Caption
+# گرفتن عنوان برای فایل پشتیبان و ذخیره آن در متغیر caption
 echo "Caption (for example, your domain, to identify the database file more easily): "
 read -r caption
 
 # Cronjob
+# تعیین زمانی برای اجرای این اسکریپت به صورت دوره‌ای
 while true; do
     echo "Cronjob (minutes and hours) (e.g : 30 6 or 0 12) : "
     read -r minute hour
@@ -48,7 +52,9 @@ while true; do
     fi
 done
 
+
 # x-ui or marzban or hiddify
+# گرفتن نوع نرم افزاری که می‌خواهیم پشتیبانی از آن بگیریم و ذخیره آن در متغیر xmh
 while [[ -z "$xmh" ]]; do
     echo "x-ui or marzban or hiddify? [x/m/h] : "
     read -r xmh
@@ -74,95 +80,108 @@ while [[ -z "$crontabs" ]]; do
 done
 
 if [[ "$crontabs" == "y" ]]; then
-    sudo crontab -l | grep -vE '/root/ac-backup.+\.sh' | crontab -
+# remove cronjobs
+sudo crontab -l | grep -vE '/root/ac-backup.+\.sh' | crontab -
 fi
 
+
 # m backup
+# ساخت فایل پشتیبانی برای نرم‌افزار Marzban و ذخیره آن در فایل ac-backup.zip
 if [[ "$xmh" == "m" ]]; then
 
-    # Checking for Marzban directory
-    if dir=$(find /opt /root -type d -iname "marzban" -print -quit); then
-      echo "The folder exists at $dir"
-    else
-      echo "The folder does not exist."
-      exit 1
+if dir=$(find /opt /root -type d -iname "marzban" -print -quit); then
+  echo "The folder exists at $dir"
+else
+  echo "The folder does not exist."
+  exit 1
+fi
+
+if [ -d "/var/lib/marzban/mysql" ]; then
+
+  sed -i -e 's/\s*=\s*/=/' -e 's/\s*:\s*/:/' -e 's/^\s*//' /opt/marzban/.env
+
+  docker exec marzban-mysql-1 bash -c "mkdir -p /var/lib/mysql/db-backup"
+  source /opt/marzban/.env
+
+  # Check if MySQL is running in Docker, if yes, ask for the root password
+  if docker ps | grep -q 'mysql'; then
+    if [[ -z "$MYSQL_ROOT_PASSWORD" ]]; then
+        echo "Please provide the MySQL root password: "
+        read -r MYSQL_ROOT_PASSWORD
     fi
+    PASSWORD="$MYSQL_ROOT_PASSWORD"
+  else
+    PASSWORD="$MYSQL_PASSWORD"
+  fi
 
-    # Checking if MySQL is running in Docker or locally
-    if docker ps --format '{{.Names}}' | grep -q "mysql"; then
-        # Docker MySQL backup
-        docker exec mysql bash -c "mkdir -p /var/lib/mysql/db-backup"
-        ZIP=$(cat <<EOF
-docker exec mysql bash -c "mysqldump -u root -p${MYSQL_ROOT_PASSWORD} marzban > /var/lib/mysql/db-backup/marzban.sql"
-zip -r /root/ac-backup-m.zip ${dir}/* /var/lib/marzban/* /opt/marzban/.env -x /var/lib/marzban/mysql/\*
-zip -r /root/ac-backup-m.zip /var/lib/mysql/db-backup/*
-rm -rf /var/lib/mysql/db-backup/*
-EOF
-)
-    elif [ -d "/var/lib/marzban/mysql" ]; then
-        # Local MySQL backup
-        sed -i -e 's/\s*=\s*/=/' -e 's/\s*:\s*/:/' -e 's/^\s*//' /opt/marzban/.env
-        source /opt/marzban/.env
-
-        cat > "/var/lib/marzban/mysql/ac-backup.sh" <<EOL
+    cat > "/var/lib/marzban/mysql/ac-backup.sh" <<EOL
 #!/bin/bash
+
 USER="root"
-PASSWORD="$MYSQL_ROOT_PASSWORD"
+PASSWORD="$PASSWORD"
+
 
 databases=\$(mysql -h 127.0.0.1 --user=\$USER --password=\$PASSWORD -e "SHOW DATABASES;" | tr -d "| " | grep -v Database)
 
 for db in \$databases; do
     if [[ "\$db" != "information_schema" ]] && [[ "\$db" != "mysql" ]] && [[ "\$db" != "performance_schema" ]] && [[ "\$db" != "sys" ]] ; then
         echo "Dumping database: \$db"
-        mysqldump -h 127.0.0.1 --force --opt --user=\$USER --password=\$PASSWORD --databases \$db > /var/lib/mysql/db-backup/\$db.sql
+		mysqldump -h 127.0.0.1 --force --opt --user=\$USER --password=\$PASSWORD --databases \$db > /var/lib/mysql/db-backup/\$db.sql
+
     fi
 done
-EOL
-        chmod +x /var/lib/marzban/mysql/ac-backup.sh
 
-        ZIP=$(cat <<EOF
-bash /var/lib/marzban/mysql/ac-backup.sh
+EOL
+chmod +x /var/lib/marzban/mysql/ac-backup.sh
+
+ZIP=$(cat <<EOF
+docker exec marzban-mysql-1 bash -c "/var/lib/mysql/ac-backup.sh"
 zip -r /root/ac-backup-m.zip /opt/marzban/* /var/lib/marzban/* /opt/marzban/.env -x /var/lib/marzban/mysql/\*
 zip -r /root/ac-backup-m.zip /var/lib/marzban/mysql/db-backup/*
 rm -rf /var/lib/marzban/mysql/db-backup/*
 EOF
 )
-    else
-        ZIP="zip -r /root/ac-backup-m.zip ${dir}/* /var/lib/marzban/* /opt/marzban/.env"
-    fi
 
-    ACLover="marzban backup"
-    
+    else
+      ZIP="zip -r /root/ac-backup-m.zip ${dir}/* /var/lib/marzban/* /opt/marzban/.env"
+fi
+
+ACLover="marzban backup"
+
 # x-ui backup
+# ساخت فایل پشتیبانی برای نرم‌افزار X-UI و ذخیره آن در فایل ac-backup.zip
 elif [[ "$xmh" == "x" ]]; then
-    if dbDir=$(find /etc /opt/freedom -type d -iname "x-ui*" -print -quit); then
-      echo "The folder exists at $dbDir"
-      if [[ $dbDir == *"/opt/freedom/x-ui"* ]]; then
-         dbDir="${dbDir}/db/"
-      fi
-    else
-      echo "The folder does not exist."
-      exit 1
-    fi
 
-    if configDir=$(find /usr/local -type d -iname "x-ui*" -print -quit); then
-      echo "The folder exists at $configDir"
-    else
-      echo "The folder does not exist."
-      exit 1
-    fi
+if dbDir=$(find /etc /opt/freedom -type d -iname "x-ui*" -print -quit); then
+  echo "The folder exists at $dbDir"
+  if [[ $dbDir == *"/opt/freedom/x-ui"* ]]; then
+     dbDir="${dbDir}/db/"
+  fi
+else
+  echo "The folder does not exist."
+  exit 1
+fi
 
-    ZIP="zip /root/ac-backup-x.zip ${dbDir}/x-ui.db ${configDir}/config.json"
-    ACLover="x-ui backup"
+if configDir=$(find /usr/local -type d -iname "x-ui*" -print -quit); then
+  echo "The folder exists at $configDir"
+else
+  echo "The folder does not exist."
+  exit 1
+fi
+
+ZIP="zip /root/ac-backup-x.zip ${dbDir}/x-ui.db ${configDir}/config.json"
+ACLover="x-ui backup"
 
 # hiddify backup
+# ساخت فایل پشتیبانی برای نرم‌افزار Hiddify و ذخیره آن در فایل ac-backup.zip
 elif [[ "$xmh" == "h" ]]; then
-    if ! find /opt/hiddify-manager/hiddify-panel/ -type d -iname "backup" -print -quit; then
-      echo "The folder does not exist."
-      exit 1
-    fi
 
-    ZIP=$(cat <<EOF
+if ! find /opt/hiddify-manager/hiddify-panel/ -type d -iname "backup" -print -quit; then
+  echo "The folder does not exist."
+  exit 1
+fi
+
+ZIP=$(cat <<EOF
 cd /opt/hiddify-manager/hiddify-panel/
 if [ $(find /opt/hiddify-manager/hiddify-panel/backup -type f | wc -l) -gt 100 ]; then
   find /opt/hiddify-manager/hiddify-panel/backup -type f -delete
@@ -172,21 +191,41 @@ cd /opt/hiddify-manager/hiddify-panel/backup
 latest_file=\$(ls -t *.json | head -n1)
 rm -f /root/ac-backup-h.zip
 zip /root/ac-backup-h.zip /opt/hiddify-manager/hiddify-panel/backup/\$latest_file
+
 EOF
 )
-    ACLover="hiddify backup"
+ACLover="hiddify backup"
 else
-    echo "Please choose m or x or h only!"
-    exit 1
+echo "Please choose m or x or h only !"
+exit 1
 fi
 
-# Additional configuration
 
-# Install zip
-sudo apt install zip -y
+trim() {
+    # remove leading and trailing whitespace/lines
+    local var="$*"
+    echo "$var" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+}
 
-# Send backup to Telegram
-cat > "/root/ac-backup-${xmh}.sh" <<EOL
-rm -rf /root/ac-backup-${xmh}.zip
-$ZIP
-echo -e "$comment" | zip -z /root
+# MySQL backup part finished
+
+# copy the backup to Telegram Bot
+# back up to Telegram Bot
+echo "Starting backup of $caption ..."
+eval $ZIP
+
+BACKUP_FILE_PATH=$(find /root -iname "*.zip" -print -quit)
+
+SEND_MSG=$(curl -s -X POST \
+    -H "Content-Type: application/json" \
+    -d '{"chat_id": "'"$chatid"'", "text": "Backup has been completed\n'"$caption"'"}' \
+    "https://api.telegram.org/bot$tk/sendMessage")
+
+SEND_FILE=$(curl -s -X POST \
+    -F "chat_id=$chatid" \
+    -F "document=@$BACKUP_FILE_PATH" \
+    "https://api.telegram.org/bot$tk/sendDocument")
+
+if [[ -f "$BACKUP_FILE_PATH" ]]; then
+    rm -rf "$BACKUP_FILE_PATH"
+fi
