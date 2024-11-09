@@ -88,7 +88,7 @@ bash <(curl -Ls https://github.com/AC-Lover/backup/raw/main/backup.sh)
 
 ###
 
-<p align="left">this is just a fork I made for my personal needs - if you like it give me a star and Donate to the original developer </p>
+<p align="left">this is just a fork I made for my personal needs with dockered sql backup - if you like it give me a star and Donate to the original developer </p>
 
 ###
 
