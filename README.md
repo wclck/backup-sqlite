@@ -98,7 +98,7 @@ bash <(curl -Ls https://github.com/AC-Lover/backup/raw/main/backup.sh)
 
 ###
 
-<p align="left">I used the translator and if I have gramme problem please help me to improve it<br>Also, I have tested this script only on Ubuntu and developers can help us to develop this script for other operating systems.</p>
+<p align="left"this is just a fork I made for my personal needs - if you like it give me a star and Donate to the original developer</p>
 
 ###
 
