@@ -1,15 +1,5 @@
 <h1 align="left">Backup</h1>
 
-<p align="center">
- <a href="./README.md">
- English
- </a>
- /
- <a href="./README-fa.md">
- فارسی
- </a>
-</p>
-
 ###
 
 <p align="left">With this script, you can backup important information such as database from the x-ui, marzban, and hiddify panels and send it to Telegram with the help of the Telegram bot so that it is always available!</p>
