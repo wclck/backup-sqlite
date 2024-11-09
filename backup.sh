@@ -1,7 +1,6 @@
 #!/bin/bash
 
 # Bot token
-# گرفتن توکن ربات از کاربر و ذخیره آن در متغیر tk
 while [[ -z "$tk" ]]; do
     echo "Bot token: "
     read -r tk
@@ -12,7 +11,6 @@ while [[ -z "$tk" ]]; do
 done
 
 # Chat id
-# گرفتن Chat ID از کاربر و ذخیره آن در متغیر chatid
 while [[ -z "$chatid" ]]; do
     echo "Chat id: "
     read -r chatid
@@ -26,12 +24,14 @@ while [[ -z "$chatid" ]]; do
 done
 
 # Caption
-# گرفتن عنوان برای فایل پشتیبان و ذخیره آن در متغیر caption
 echo "Caption (for example, your domain, to identify the database file more easily): "
 read -r caption
 
+# Get the server IP
+server_ip=$(hostname -I | awk '{print $1}')
+echo "Server IP: $server_ip"
+
 # Cronjob
-# تعیین زمانی برای اجرای این اسکریپت به صورت دوره‌ای
 while true; do
     echo "Cronjob (minutes and hours) (e.g : 30 6 or 0 12) : "
     read -r minute hour
@@ -52,9 +52,7 @@ while true; do
     fi
 done
 
-
 # x-ui or marzban or hiddify
-# گرفتن نوع نرم افزاری که می‌خواهیم پشتیبانی از آن بگیریم و ذخیره آن در متغیر xmh
 while [[ -z "$xmh" ]]; do
     echo "x-ui or marzban or hiddify? [x/m/h] : "
     read -r xmh
@@ -67,26 +65,7 @@ while [[ -z "$xmh" ]]; do
     fi
 done
 
-while [[ -z "$crontabs" ]]; do
-    echo "Would you like the previous crontabs to be cleared? [y/n] : "
-    read -r crontabs
-    if [[ $crontabs == $'\0' ]]; then
-        echo "Invalid input. Please choose y or n."
-        unset crontabs
-    elif [[ ! $crontabs =~ ^[yn]$ ]]; then
-        echo "${crontabs} is not a valid option. Please choose y or n."
-        unset crontabs
-    fi
-done
-
-if [[ "$crontabs" == "y" ]]; then
-# remove cronjobs
-sudo crontab -l | grep -vE '/root/ac-backup.+\.sh' | crontab -
-fi
-
-
 # m backup
-# ساخت فایل پشتیبانی برای نرم‌افزار Marzban و ذخیره آن در فایل ac-backup.zip
 if [[ "$xmh" == "m" ]]; then
 
 if dir=$(find /opt /root -type d -iname "marzban" -print -quit); then
@@ -103,7 +82,7 @@ if [ -d "/var/lib/marzban/mysql" ]; then
   docker exec marzban-mysql-1 bash -c "mkdir -p /var/lib/mysql/db-backup"
   source /opt/marzban/.env
 
-  # Check if MySQL is running in Docker, if yes, ask for the root password
+  # Check if MySQL is running in Docker
   if docker ps | grep -q 'mysql'; then
     if [[ -z "$MYSQL_ROOT_PASSWORD" ]]; then
         echo "Please provide the MySQL root password: "
@@ -114,118 +93,51 @@ if [ -d "/var/lib/marzban/mysql" ]; then
     PASSWORD="$MYSQL_PASSWORD"
   fi
 
-    cat > "/var/lib/marzban/mysql/ac-backup.sh" <<EOL
+  cat > "/var/lib/marzban/mysql/ac-backup.sh" <<EOL
 #!/bin/bash
 
 USER="root"
 PASSWORD="$PASSWORD"
 
-
+# Make SQL dump of databases
 databases=\$(mysql -h 127.0.0.1 --user=\$USER --password=\$PASSWORD -e "SHOW DATABASES;" | tr -d "| " | grep -v Database)
 
 for db in \$databases; do
     if [[ "\$db" != "information_schema" ]] && [[ "\$db" != "mysql" ]] && [[ "\$db" != "performance_schema" ]] && [[ "\$db" != "sys" ]] ; then
         echo "Dumping database: \$db"
-		mysqldump -h 127.0.0.1 --force --opt --user=\$USER --password=\$PASSWORD --databases \$db > /var/lib/mysql/db-backup/\$db.sql
-
+        mysqldump -h 127.0.0.1 --user=\$USER --password=\$PASSWORD \$db > /var/lib/mysql/db-backup/\$db.sql
     fi
 done
-
 EOL
 chmod +x /var/lib/marzban/mysql/ac-backup.sh
 
-ZIP=$(cat <<EOF
-docker exec marzban-mysql-1 bash -c "/var/lib/mysql/ac-backup.sh"
-zip -r /root/ac-backup-m.zip /opt/marzban/* /var/lib/marzban/* /opt/marzban/.env -x /var/lib/marzban/mysql/\*
-zip -r /root/ac-backup-m.zip /var/lib/marzban/mysql/db-backup/*
-rm -rf /var/lib/marzban/mysql/db-backup/*
-EOF
-)
+ZIP="docker exec marzban-mysql-1 bash -c '/var/lib/marzban/mysql/ac-backup.sh'; zip -r /root/ac-backup-m.zip /opt/marzban/* /var/lib/marzban/* /opt/marzban/.env -x /var/lib/marzban/mysql/*"
 
-    else
-      ZIP="zip -r /root/ac-backup-m.zip ${dir}/* /var/lib/marzban/* /opt/marzban/.env"
-fi
-
-ACLover="marzban backup"
-
-# x-ui backup
-# ساخت فایل پشتیبانی برای نرم‌افزار X-UI و ذخیره آن در فایل ac-backup.zip
-elif [[ "$xmh" == "x" ]]; then
-
-if dbDir=$(find /etc /opt/freedom -type d -iname "x-ui*" -print -quit); then
-  echo "The folder exists at $dbDir"
-  if [[ $dbDir == *"/opt/freedom/x-ui"* ]]; then
-     dbDir="${dbDir}/db/"
-  fi
-else
-  echo "The folder does not exist."
-  exit 1
-fi
-
-if configDir=$(find /usr/local -type d -iname "x-ui*" -print -quit); then
-  echo "The folder exists at $configDir"
-else
-  echo "The folder does not exist."
-  exit 1
-fi
-
-ZIP="zip /root/ac-backup-x.zip ${dbDir}/x-ui.db ${configDir}/config.json"
-ACLover="x-ui backup"
-
-# hiddify backup
-# ساخت فایل پشتیبانی برای نرم‌افزار Hiddify و ذخیره آن در فایل ac-backup.zip
-elif [[ "$xmh" == "h" ]]; then
-
-if ! find /opt/hiddify-manager/hiddify-panel/ -type d -iname "backup" -print -quit; then
-  echo "The folder does not exist."
-  exit 1
-fi
-
-ZIP=$(cat <<EOF
-cd /opt/hiddify-manager/hiddify-panel/
-if [ $(find /opt/hiddify-manager/hiddify-panel/backup -type f | wc -l) -gt 100 ]; then
-  find /opt/hiddify-manager/hiddify-panel/backup -type f -delete
-fi
-python3 -m hiddifypanel backup
-cd /opt/hiddify-manager/hiddify-panel/backup
-latest_file=\$(ls -t *.json | head -n1)
-rm -f /root/ac-backup-h.zip
-zip /root/ac-backup-h.zip /opt/hiddify-manager/hiddify-panel/backup/\$latest_file
-
-EOF
-)
-ACLover="hiddify backup"
-else
-echo "Please choose m or x or h only !"
-exit 1
-fi
-
-
-trim() {
-    # remove leading and trailing whitespace/lines
-    local var="$*"
-    echo "$var" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
-}
-
-# MySQL backup part finished
-
-# copy the backup to Telegram Bot
-# back up to Telegram Bot
+# Send backup to Telegram without "Backup complete" message
 echo "Starting backup of $caption ..."
 eval $ZIP
 
 BACKUP_FILE_PATH=$(find /root -iname "*.zip" -print -quit)
 
-SEND_MSG=$(curl -s -X POST \
-    -H "Content-Type: application/json" \
-    -d '{"chat_id": "'"$chatid"'", "text": "Backup has been completed\n'"$caption"'"}' \
-    "https://api.telegram.org/bot$tk/sendMessage")
-
 SEND_FILE=$(curl -s -X POST \
     -F "chat_id=$chatid" \
     -F "document=@$BACKUP_FILE_PATH" \
+    -F "caption=$caption-backup.zip (Server IP: $server_ip)" \
     "https://api.telegram.org/bot$tk/sendDocument")
 
 if [[ -f "$BACKUP_FILE_PATH" ]]; then
     rm -rf "$BACKUP_FILE_PATH"
+fi
+
+else
+  echo "The MySQL directory does not exist."
+  exit 1
+fi
+
+fi
+
+# Add cron job
+if [[ ! -z "$cron_time" ]]; then
+    (crontab -l 2>/dev/null; echo "$cron_time /root/backup.sh") | crontab -
+    echo "Cron job added successfully."
 fi
