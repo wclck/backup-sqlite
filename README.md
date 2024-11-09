@@ -84,11 +84,11 @@ bash <(curl -Ls https://github.com/AC-Lover/backup/raw/main/backup.sh)
 
 ###
 
-<h1 align="left">Help us</h1>
+<h1 align="left">Help the original DEV</h1>
 
 ###
 
-<p align="left"this is just a fork I made for my personal needs - if you like it give me a star and Donate to the original developer </p>
+<p align="left">this is just a fork I made for my personal needs - if you like it give me a star and Donate to the original developer </p>
 
 ###
 
