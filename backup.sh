@@ -28,6 +28,7 @@ echo "Caption (for example, your domain, to identify the database file more easi
 read -r caption
 
 # Cronjob
+# تعیین زمانی برای اجرای این اسکریپت به صورت دوره‌ای
 while true; do
     echo "Cronjob (minutes and hours) (e.g : 30 6 or 0 12) : "
     read -r minute hour
@@ -90,14 +91,14 @@ else
   exit 1
 fi
 
-if [ -d "/var/lib/docker/volumes/mysql/_data" ]; then
+if [ -d "/var/lib/marzban/mysql" ]; then
 
   sed -i -e 's/\s*=\s*/=/' -e 's/\s*:\s*/:/' -e 's/^\s*//' /opt/marzban/.env
 
-  docker exec marzban-mysql-1 bash -c "mkdir -p /var/lib/docker/volumes/mysql/_data/db-backup"
+  docker exec marzban-mysql-1 bash -c "mkdir -p /var/lib/mysql/db-backup"
   source /opt/marzban/.env
 
-    cat > "/var/lib/docker/volumes/mysql/_data/ac-backup.sh" <<EOL
+    cat > "/var/lib/marzban/mysql/ac-backup.sh" <<EOL
 #!/bin/bash
 
 USER="root"
@@ -109,19 +110,19 @@ databases=\$(mysql -h 127.0.0.1 --user=\$USER --password=\$PASSWORD -e "SHOW DAT
 for db in \$databases; do
     if [[ "\$db" != "information_schema" ]] && [[ "\$db" != "mysql" ]] && [[ "\$db" != "performance_schema" ]] && [[ "\$db" != "sys" ]] ; then
         echo "Dumping database: \$db"
-		mysqldump -h 127.0.0.1 --force --opt --user=\$USER --password=\$PASSWORD --databases \$db > /var/lib/docker/volumes/mysql/_data/db-backup/\$db.sql
+		mysqldump -h 127.0.0.1 --force --opt --user=\$USER --password=\$PASSWORD --databases \$db > /var/lib/mysql/db-backup/\$db.sql
 
     fi
 done
 
 EOL
-chmod +x /var/lib/docker/volumes/mysql/_data/ac-backup.sh
+chmod +x /var/lib/marzban/mysql/ac-backup.sh
 
 ZIP=$(cat <<EOF
 docker exec marzban-mysql-1 bash -c "/var/lib/mysql/ac-backup.sh"
-zip -r /root/ac-backup-m.zip /opt/marzban/* /var/lib/marzban/* /opt/marzban/.env -x /var/lib/docker/volumes/mysql/_data/\*
-zip -r /root/ac-backup-m.zip /var/lib/docker/volumes/mysql/_data/db-backup/*
-rm -rf /var/lib/docker/volumes/mysql/_data/db-backup/*
+zip -r /root/ac-backup-m.zip /opt/marzban/* /var/lib/marzban/* /opt/marzban/.env -x /var/lib/marzban/mysql/\*
+zip -r /root/ac-backup-m.zip /var/lib/marzban/mysql/db-backup/*
+rm -rf /var/lib/marzban/mysql/db-backup/*
 EOF
 )
 
@@ -193,7 +194,7 @@ trim() {
 }
 
 IP=$(ip route get 1 | sed -n 's/^.*src \([0-9.]*\) .*$/\1/p')
-caption="${caption}\n\n${ACLover}\n<code>${IP}</code>\"
+caption="${caption}\n\n${ACLover}\n<code>${IP}</code>\n"
 comment=$(echo -e "$caption" | sed 's/<code>//g;s/<\/code>//g')
 comment=$(trim "$comment")
 
