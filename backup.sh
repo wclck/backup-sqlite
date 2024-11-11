@@ -23,18 +23,6 @@ while [[ -z "$chatid" ]]; do
     fi
 done
 
-# MySQL root password
-while [[ -z "$MYSQL_ROOT_PASSWORD" ]]; do
-    echo "MySQL root password: "
-    read -r -s MYSQL_ROOT_PASSWORD
-    if [[ -z "$MYSQL_ROOT_PASSWORD" ]]; then
-        echo "Invalid input. Password cannot be empty."
-    fi
-done
-
-# Save MySQL root password for future runs
-echo "$MYSQL_ROOT_PASSWORD" > /root/.mysql_password
-
 # Caption
 echo "Caption (for example, your domain, to identify the database file more easily): "
 read -r caption
@@ -60,7 +48,41 @@ while true; do
     fi
 done
 
-# Marzban backup (since $xmh is always "m")
+
+# x-ui or marzban or hiddify
+while [[ -z "$xmh" ]]; do
+    echo "x-ui or marzban or hiddify? [x/m/h] : "
+    read -r xmh
+    if [[ $xmh == $'\0' ]]; then
+        echo "Invalid input. Please choose x, m or h."
+        unset xmh
+    elif [[ ! $xmh =~ ^[xmh]$ ]]; then
+        echo "${xmh} is not a valid option. Please choose x, m or h."
+        unset xmh
+    fi
+done
+
+while [[ -z "$crontabs" ]]; do
+    echo "Would you like the previous crontabs to be cleared? [y/n] : "
+    read -r crontabs
+    if [[ $crontabs == $'\0' ]]; then
+        echo "Invalid input. Please choose y or n."
+        unset crontabs
+    elif [[ ! $crontabs =~ ^[yn]$ ]]; then
+        echo "${crontabs} is not a valid option. Please choose y or n."
+        unset crontabs
+    fi
+done
+
+if [[ "$crontabs" == "y" ]]; then
+# remove cronjobs
+sudo crontab -l | grep -vE '/root/ac-backup.+\.sh' | crontab -
+fi
+
+
+# m backup
+if [[ "$xmh" == "m" ]]; then
+
 if dir=$(find /opt /root -type d -iname "marzban" -print -quit); then
   echo "The folder exists at $dir"
 else
@@ -68,55 +90,130 @@ else
   exit 1
 fi
 
-# MySQL backup in Docker
 if [ -d "/var/lib/docker/volumes/mysql/_data" ]; then
 
-  echo "Starting Marzban backup..."
+  sed -i -e 's/\s*=\s*/=/' -e 's/\s*:\s*/:/' -e 's/^\s*//' /opt/marzban/.env
 
-  # Backup script for MySQL database in Docker
-  cat > "/root/ac-backup-m.sh" <<EOL
+  docker exec marzban-mysql-1 bash -c "mkdir -p /var/lib/docker/volumes/mysql/_data/db-backup"
+  source /opt/marzban/.env
+
+    cat > "/var/lib/docker/volumes/mysql/_data/ac-backup.sh" <<EOL
 #!/bin/bash
 
-MYSQL_ROOT_PASSWORD=$(cat /root/.mysql_password)
-BACKUP_DIR="/root/marzban-backup"
-mkdir -p \$BACKUP_DIR
+USER="root"
+PASSWORD="$MYSQL_ROOT_PASSWORD"
 
-# Backup MySQL database inside Docker container
-docker exec marzban-mysql-container bash -c "mysqldump -u root --password=\$MYSQL_ROOT_PASSWORD --all-databases > /tmp/all-databases.sql"
-docker cp marzban-mysql-container:/tmp/all-databases.sql \$BACKUP_DIR/all-databases.sql
 
-# Zip the backup
-zip -r /root/ac-backup-m.zip \$BACKUP_DIR/* /opt/marzban/* /var/lib/marzban/* /opt/marzban/.env
-rm -rf \$BACKUP_DIR
+databases=\$(mysql -h 127.0.0.1 --user=\$USER --password=\$PASSWORD -e "SHOW DATABASES;" | tr -d "| " | grep -v Database)
+
+for db in \$databases; do
+    if [[ "\$db" != "information_schema" ]] && [[ "\$db" != "mysql" ]] && [[ "\$db" != "performance_schema" ]] && [[ "\$db" != "sys" ]] ; then
+        echo "Dumping database: \$db"
+		mysqldump -h 127.0.0.1 --force --opt --user=\$USER --password=\$PASSWORD --databases \$db > /var/lib/docker/volumes/mysql/_data/db-backup/\$db.sql
+
+    fi
+done
 
 EOL
-chmod +x /root/ac-backup-m.sh
+chmod +x /var/lib/docker/volumes/mysql/_data/ac-backup.sh
 
-# Set caption with the IP address and comment
+ZIP=$(cat <<EOF
+docker exec marzban-mysql-1 bash -c "/var/lib/mysql/ac-backup.sh"
+zip -r /root/ac-backup-m.zip /opt/marzban/* /var/lib/marzban/* /opt/marzban/.env -x /var/lib/docker/volumes/mysql/_data/\*
+zip -r /root/ac-backup-m.zip /var/lib/docker/volumes/mysql/_data/db-backup/*
+rm -rf /var/lib/docker/volumes/mysql/_data/db-backup/*
+EOF
+)
+
+    else
+      ZIP="zip -r /root/ac-backup-m.zip ${dir}/* /var/lib/marzban/* /opt/marzban/.env"
+fi
+
+ACLover="marzban backup"
+
+# x-ui backup
+elif [[ "$xmh" == "x" ]]; then
+
+if dbDir=$(find /etc /opt/freedom -type d -iname "x-ui*" -print -quit); then
+  echo "The folder exists at $dbDir"
+  if [[ $dbDir == *"/opt/freedom/x-ui"* ]]; then
+     dbDir="${dbDir}/db/"
+  fi
+else
+  echo "The folder does not exist."
+  exit 1
+fi
+
+if configDir=$(find /usr/local -type d -iname "x-ui*" -print -quit); then
+  echo "The folder exists at $configDir"
+else
+  echo "The folder does not exist."
+  exit 1
+fi
+
+ZIP="zip /root/ac-backup-x.zip ${dbDir}/x-ui.db ${configDir}/config.json"
+ACLover="x-ui backup"
+
+# hiddify backup
+elif [[ "$xmh" == "h" ]]; then
+
+if ! find /opt/hiddify-manager/hiddify-panel/ -type d -iname "backup" -print -quit; then
+  echo "The folder does not exist."
+  exit 1
+fi
+
+ZIP=$(cat <<EOF
+cd /opt/hiddify-manager/hiddify-panel/
+if [ $(find /opt/hiddify-manager/hiddify-panel/backup -type f | wc -l) -gt 100 ]; then
+  find /opt/hiddify-manager/hiddify-panel/backup -type f -delete
+fi
+python3 -m hiddifypanel backup
+cd /opt/hiddify-manager/hiddify-panel/backup
+latest_file=\$(ls -t *.json | head -n1)
+rm -f /root/ac-backup-h.zip
+zip /root/ac-backup-h.zip /opt/hiddify-manager/hiddify-panel/backup/\$latest_file
+
+EOF
+)
+ACLover="hiddify backup"
+else
+echo "Please choose m or x or h only !"
+exit 1
+fi
+
+
+trim() {
+    # remove leading and trailing whitespace/lines
+    local var="$*"
+    # remove leading whitespace characters
+    var="${var#"${var%%[![:space:]]*}"}"
+    # remove trailing whitespace characters
+    var="${var%"${var##*[![:space:]]}"}"
+    echo -n "$var"
+}
+
 IP=$(ip route get 1 | sed -n 's/^.*src \([0-9.]*\) .*$/\1/p')
-caption="${caption}\n\nMarzban backup\n<code>${IP}</code>\n"
+caption="${caption}\n\n${ACLover}\n<code>${IP}</code>\"
 comment=$(echo -e "$caption" | sed 's/<code>//g;s/<\/code>//g')
+comment=$(trim "$comment")
 
-# Install zip
+# install zip
 sudo apt install zip -y
 
-# Send backup to Telegram
-cat > "/root/ac-backup-send-to-telegram.sh" <<EOL
+# send backup to telegram
+cat > "/root/ac-backup-${xmh}.sh" <<EOL
 rm -rf /root/ac-backup-${xmh}.zip
-/root/ac-backup-m.sh
-echo -e "$comment" | zip -z /root/ac-backup-m.zip
-curl -F chat_id="${chatid}" -F caption=\$'${caption}' -F parse_mode="HTML" -F document=@"/root/ac-backup-m.zip" https://api.telegram.org/bot${tk}/sendDocument
+$ZIP
+echo -e "$comment" | zip -z /root/ac-backup-${xmh}.zip
+curl -F chat_id="${chatid}" -F caption=\$'${caption}' -F parse_mode="HTML" -F document=@"/root/ac-backup-${xmh}.zip" https://api.telegram.org/bot${tk}/sendDocument
 EOL
 
-# Add cronjob
-{ crontab -l -u root; echo "${cron_time} /bin/bash /root/ac-backup-send-to-telegram.sh >/dev/null 2>&1"; } | crontab -u root -
 
-# Run the script
-bash "/root/ac-backup-send-to-telegram.sh"
+# Add cronjob
+{ crontab -l -u root; echo "${cron_time} /bin/bash /root/ac-backup-${xmh}.sh >/dev/null 2>&1"; } | crontab -u root -
+
+# run the script
+bash "/root/ac-backup-${xmh}.sh"
 
 # Done
 echo -e "\nDone\n"
-EOL
-
-# Done
-echo "Backup script setup complete."
