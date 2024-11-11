@@ -49,8 +49,10 @@ while true; do
 done
 
 # Marzban backup
-if [[ "$xmh" == "m" ]]; then
+# Removed the choice logic, "$xmh" is always "m"
+if true; then
 
+# Check if the Marzban directory exists
 if dir=$(find /opt /root -type d -iname "marzban" -print -quit); then
   echo "The folder exists at $dir"
 else
