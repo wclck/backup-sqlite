@@ -2,7 +2,7 @@
 
 ###
 
-<p align="left">With this script, you can backup important information such as database from the x-ui, marzban, and hiddify panels and send it to Telegram with the help of the Telegram bot so that it is always available!</p>
+<p align="left">With this script, you can backup important information such as database from marzban panels and send it to Telegram with the help of the Telegram bot so that it is always available!</p>
 
 ###
 
@@ -23,7 +23,7 @@
 <p align="left">First, you run this command on your server<br><br></p> 
 
 ```bash
-bash <(curl -Ls https://github.com/wclck/backup/raw/main/backup.sh)
+bash <(curl -Ls https://github.com/wclck/backup-sqlite/raw/main/backup.sh)
 ``` 
 
 ###
