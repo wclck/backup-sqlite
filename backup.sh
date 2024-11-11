@@ -198,7 +198,6 @@ comment=$(echo -e "$caption" | sed 's/<code>//g;s/<\/code>//g')
 comment=$(trim "$comment")
 
 # install zip
-# نصب پکیج zip
 sudo apt install zip -y
 
 # send backup to telegram
