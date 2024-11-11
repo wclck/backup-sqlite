@@ -23,6 +23,18 @@ while [[ -z "$chatid" ]]; do
     fi
 done
 
+# MySQL root password
+while [[ -z "$MYSQL_ROOT_PASSWORD" ]]; do
+    echo "MySQL root password: "
+    read -r -s MYSQL_ROOT_PASSWORD
+    if [[ -z "$MYSQL_ROOT_PASSWORD" ]]; then
+        echo "Invalid input. Password cannot be empty."
+    fi
+done
+
+# Save MySQL root password for future runs
+echo "$MYSQL_ROOT_PASSWORD" > /root/.mysql_password
+
 # Caption
 echo "Caption (for example, your domain, to identify the database file more easily): "
 read -r caption
@@ -48,11 +60,7 @@ while true; do
     fi
 done
 
-# Marzban backup
-# Removed the choice logic, "$xmh" is always "m"
-if true; then
-
-# Check if the Marzban directory exists
+# Marzban backup (since $xmh is always "m")
 if dir=$(find /opt /root -type d -iname "marzban" -print -quit); then
   echo "The folder exists at $dir"
 else
@@ -60,62 +68,55 @@ else
   exit 1
 fi
 
-# Backup logic for Docker MySQL
-MYSQL_CONTAINER_NAME="marzban-mysql-1"  # Ensure this matches the name of your MySQL container
+# MySQL backup in Docker
+if [ -d "/var/lib/docker/volumes/mysql/_data" ]; then
 
-# Backup MySQL data from the Docker volume
-BACKUP_DIR="/root/mysql-backup"
-docker exec $MYSQL_CONTAINER_NAME bash -c "mkdir -p /var/lib/mysql/db-backup"
-docker exec $MYSQL_CONTAINER_NAME bash -c "mysqldump -u root -p\$MYSQL_ROOT_PASSWORD --all-databases > /var/lib/mysql/db-backup/all_databases.sql"
+  echo "Starting Marzban backup..."
 
-# Create a backup ZIP of the Marzban data and MySQL
-ZIP=$(cat <<EOF
-docker exec $MYSQL_CONTAINER_NAME bash -c "tar czf /var/lib/mysql/db-backup/mysql-data.tar.gz -C /var/lib/docker/volumes/mysql/_data ."
-docker cp $MYSQL_CONTAINER_NAME:/var/lib/mysql/db-backup/mysql-data.tar.gz /root/
-zip -r /root/ac-backup-m.zip ${dir}/* /var/lib/marzban/* /opt/marzban/.env /root/mysql-backup/*
-rm -rf /root/mysql-backup/*
-rm -rf /var/lib/mysql/db-backup/*
-EOF
-)
+  # Backup script for MySQL database in Docker
+  cat > "/root/ac-backup-m.sh" <<EOL
+#!/bin/bash
 
-ACLover="marzban backup"
+MYSQL_ROOT_PASSWORD=$(cat /root/.mysql_password)
+BACKUP_DIR="/root/marzban-backup"
+mkdir -p \$BACKUP_DIR
 
-else
-echo "Please choose m only !"
-exit 1
-fi
+# Backup MySQL database inside Docker container
+docker exec marzban-mysql-container bash -c "mysqldump -u root --password=\$MYSQL_ROOT_PASSWORD --all-databases > /tmp/all-databases.sql"
+docker cp marzban-mysql-container:/tmp/all-databases.sql \$BACKUP_DIR/all-databases.sql
 
-trim() {
-    # remove leading and trailing whitespace/lines
-    local var="$*"
-    # remove leading whitespace characters
-    var="${var#"${var%%[![:space:]]*}"}"
-    # remove trailing whitespace characters
-    var="${var%"${var##*[![:space:]]}"}"
-    echo -n "$var"
-}
+# Zip the backup
+zip -r /root/ac-backup-m.zip \$BACKUP_DIR/* /opt/marzban/* /var/lib/marzban/* /opt/marzban/.env
+rm -rf \$BACKUP_DIR
 
+EOL
+chmod +x /root/ac-backup-m.sh
+
+# Set caption with the IP address and comment
 IP=$(ip route get 1 | sed -n 's/^.*src \([0-9.]*\) .*$/\1/p')
-caption="${caption}\n\n${ACLover}\n<code>${IP}</code>\n"
+caption="${caption}\n\nMarzban backup\n<code>${IP}</code>\n"
 comment=$(echo -e "$caption" | sed 's/<code>//g;s/<\/code>//g')
-comment=$(trim "$comment")
 
-# install zip
+# Install zip
 sudo apt install zip -y
 
-# send backup to telegram
-cat > "/root/ac-backup-${xmh}.sh" <<EOL
+# Send backup to Telegram
+cat > "/root/ac-backup-send-to-telegram.sh" <<EOL
 rm -rf /root/ac-backup-${xmh}.zip
-$ZIP
-echo -e "$comment" | zip -z /root/ac-backup-${xmh}.zip
-curl -F chat_id="${chatid}" -F caption=\$'${caption}' -F parse_mode="HTML" -F document=@"/root/ac-backup-${xmh}.zip" https://api.telegram.org/bot${tk}/sendDocument
+/root/ac-backup-m.sh
+echo -e "$comment" | zip -z /root/ac-backup-m.zip
+curl -F chat_id="${chatid}" -F caption=\$'${caption}' -F parse_mode="HTML" -F document=@"/root/ac-backup-m.zip" https://api.telegram.org/bot${tk}/sendDocument
 EOL
 
 # Add cronjob
-{ crontab -l -u root; echo "${cron_time} /bin/bash /root/ac-backup-${xmh}.sh >/dev/null 2>&1"; } | crontab -u root -
+{ crontab -l -u root; echo "${cron_time} /bin/bash /root/ac-backup-send-to-telegram.sh >/dev/null 2>&1"; } | crontab -u root -
 
-# run the script
-bash "/root/ac-backup-${xmh}.sh"
+# Run the script
+bash "/root/ac-backup-send-to-telegram.sh"
 
 # Done
 echo -e "\nDone\n"
+EOL
+
+# Done
+echo "Backup script setup complete."
