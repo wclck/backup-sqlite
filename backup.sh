@@ -28,7 +28,6 @@ echo "Caption (for example, your domain, to identify the database file more easi
 read -r caption
 
 # Cronjob
-# تعیین زمانی برای اجرای این اسکریپت به صورت دوره‌ای
 while true; do
     echo "Cronjob (minutes and hours) (e.g : 30 6 or 0 12) : "
     read -r minute hour
